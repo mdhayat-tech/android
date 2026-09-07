@@ -1,4 +1,3 @@
-
 name: Flutter Build APK
 
 on:
@@ -25,6 +24,11 @@ jobs:
         uses: subosito/flutter-action@v2
         with:
           channel: 'stable'
+
+      - name: Recreate Android Project Scaffold
+        run: |
+          # This forces Flutter to automatically regenerate the missing android/ folder and configurations
+          flutter create . --platforms=android
 
       - name: Get Dependencies
         run: flutter pub get
