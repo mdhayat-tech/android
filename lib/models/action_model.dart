@@ -6,11 +6,11 @@ class SmartAction {
     required this.title,
     required this.iconName,
     required this.actionUrl,
-    required this.onTapCallback,
+    this.onTapCallback,
   });
 
   final String title;
   final String iconName;
   final String actionUrl;
-  final ActionCallback onTapCallback;
+  final void Function()? onTapCallback;
 }
