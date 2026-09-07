@@ -1,151 +1,89 @@
-import 'package:flutter/services.dart';
-import 'package:url_launcher/url_launcher.dart';
-
 import '../models/action_model.dart';
 
-/// Converts pasted text into executable actions without holding UI state.
 class TextParserService {
-  TextParserService._();
-
-  static final RegExp _urlPattern = RegExp(
-    r'(?:(?:https?|ftp)://|www\.)[^\s<>]+',
-    caseSensitive: false,
-  );
-  static final RegExp _phonePattern = RegExp(
-    r'(?<!\w)(?:\+?\d[\d ()().-]{7,}\d)(?!\w)',
-  );
-  static final RegExp _trackingPattern = RegExp(
-    r'(?<![A-Za-z0-9])[A-Za-z0-9]{12,22}(?![A-Za-z0-9])',
-  );
-  static final RegExp _addressPattern = RegExp(
-    r'\b\d{1,6}\s+[A-Za-z0-9][A-Za-z0-9 .\'-]{2,},\s*[A-Za-z .\'-]{2,}',
-    caseSensitive: false,
-  );
-
   static List<SmartAction> getActionsForText(String text) {
-    final trimmedText = text.trim();
-    if (trimmedText.isEmpty) return <SmartAction>[];
+    List<SmartAction> actions = [];
+    if (text.trim().isEmpty) return actions;
 
-    final actions = <SmartAction>[];
-    final urlMatch = _urlPattern.firstMatch(trimmedText)?.group(0);
-    final phoneMatch = _phonePattern.firstMatch(trimmedText)?.group(0);
+    // 1. URL Detection
+    final urlRegex = RegExp(
+      r'(https?:\/\/(?:www\.|(?!www))[a-zA-Z0-9][a-zA-Z0-9-]+[a-zA-Z0-9]\.[^\s]{2,}|www\.[a-zA-Z0-9][a-zA-Z0-9-]+[a-zA-Z0-9]\.[^\s]{2,}|https?:\/\/(?:www\.|(?!www))[a-zA-Z0-9]+\.[^\s]{2,}|www\.[a-zA-Z0-9]+\.[^\s]{2,})',
+      caseSensitive: false,
+    );
+    
+    // 2. Phone Number Detection (Matches global formats)
+    final phoneRegex = RegExp(r'\+?[0-9]{7,15}');
 
-    if (urlMatch != null) {
-      final normalizedUrl = _normalizeUrl(urlMatch);
-      actions.add(_action(
+    // 3. Address Detection (Fixed Escaped Syntax)
+    final addressRegex = RegExp(
+      r'\b\d{1,6}\s+[A-Za-z0-9\s\.,\-\x27]{5,50}',
+      caseSensitive: false,
+    );
+
+    // 4. Tracking Number Detection (Standard 12 to 22 digit alphanumeric barcodes)
+    final trackingRegex = RegExp(r'\b[A-Z0-9]{12,22}\b', caseSensitive: false);
+
+    // Apply URL Parsing
+    if (urlRegex.hasMatch(text)) {
+      final match = urlRegex.firstMatch(text)?.group(0) ?? '';
+      final validUrl = match.startsWith('http') ? match : 'https://$match';
+      actions.add(SmartAction(
         title: 'Open Link',
-        iconName: 'open_in_new',
-        actionUrl: normalizedUrl,
-        callback: () => _launch(Uri.parse(normalizedUrl)),
+        iconName: 'link',
+        actionUrl: validUrl,
       ));
     }
 
-    if (_addressPattern.hasMatch(trimmedText)) {
-      final mapsUrl = Uri.https(
-        'www.google.com',
-        '/maps/search/',
-        <String, String>{'api': '1', 'query': trimmedText},
-      );
-      actions.add(_action(
-        title: 'View on Google Maps',
-        iconName: 'map_outlined',
-        actionUrl: mapsUrl.toString(),
-        callback: () => _launch(mapsUrl),
-      ));
-    }
-
-    if (phoneMatch != null) {
-      final phoneNumber = _digitsOnly(phoneMatch);
-      final callUrl = 'tel:$phoneNumber';
-      final whatsappUrl = 'https://wa.me/${phoneNumber.replaceFirst('+', '')}';
-      actions.add(_action(
+    // Apply Phone Parsing
+    if (phoneRegex.hasMatch(text)) {
+      final phone = phoneRegex.firstMatch(text)?.group(0) ?? '';
+      actions.add(SmartAction(
         title: 'Call Number',
-        iconName: 'phone_outlined',
-        actionUrl: callUrl,
-        callback: () => _launch(Uri.parse(callUrl)),
+        iconName: 'phone',
+        actionUrl: 'tel:$phone',
       ));
-      actions.add(_action(
-        title: 'Send WhatsApp Message',
-        iconName: 'chat_outlined',
-        actionUrl: whatsappUrl,
-        callback: () => _launch(Uri.parse(whatsappUrl)),
+      actions.add(SmartAction(
+        title: 'Send WhatsApp',
+        iconName: 'message',
+        actionUrl: 'https://wa.me{phone.replaceAll('+', '')}',
       ));
     }
 
-    if (_trackingPattern.hasMatch(trimmedText) && phoneMatch == null) {
-      final trackingUrl = Uri.https(
-        'www.google.com',
-        '/search',
-        <String, String>{'q': '$trimmedText tracking'},
-      );
-      actions.add(_action(
+    // Apply Address Parsing
+    if (addressRegex.hasMatch(text) && !urlRegex.hasMatch(text)) {
+      final address = addressRegex.firstMatch(text)?.group(0) ?? '';
+      final encodedAddress = Uri.encodeComponent(address);
+      actions.add(SmartAction(
+        title: 'View on Maps',
+        iconName: 'map',
+        actionUrl: 'https://google.com',
+      ));
+    }
+
+    // Apply Tracking Parsing
+    if (trackingRegex.hasMatch(text) && !urlRegex.hasMatch(text) && !phoneRegex.hasMatch(text)) {
+      final tracking = trackingRegex.firstMatch(text)?.group(0) ?? '';
+      actions.add(SmartAction(
         title: 'Track Package',
-        iconName: 'local_shipping_outlined',
-        actionUrl: trackingUrl.toString(),
-        callback: () => _launch(trackingUrl),
+        iconName: 'local_shipping',
+        actionUrl: 'https://google.com',
       ));
     }
 
-    final searchUrl = Uri.https(
-      'www.google.com',
-      '/search',
-      <String, String>{'q': trimmedText},
-    );
-    final shareUrl = Uri(
-      scheme: 'mailto',
-      queryParameters: <String, String>{
-        'subject': 'Shared from QuickActions',
-        'body': trimmedText,
-      },
-    );
+    // Always provide fallback general actions for basic text strings
+    final cleanText = Uri.encodeComponent(text);
+    actions.add(SmartAction(
+      title: 'Google Search',
+      iconName: 'search',
+      actionUrl: 'https://google.com',
+    ));
 
-    actions.addAll(<SmartAction>[
-      _action(
-        title: 'Search Google',
-        iconName: 'search',
-        actionUrl: searchUrl.toString(),
-        callback: () => _launch(searchUrl),
-      ),
-      _action(
-        title: 'Copy to Clipboard',
-        iconName: 'copy_outlined',
-        actionUrl: '',
-        callback: () => Clipboard.setData(ClipboardData(text: trimmedText)),
-      ),
-      _action(
-        title: 'Share Text',
-        iconName: 'share_outlined',
-        actionUrl: shareUrl.toString(),
-        callback: () => _launch(shareUrl),
-      ),
-    ]);
+    actions.add(SmartAction(
+      title: 'Translate Text',
+      iconName: 'translate',
+      actionUrl: 'https://google.com',
+    ));
 
     return actions;
-  }
-
-  static SmartAction _action({
-    required String title,
-    required String iconName,
-    required String actionUrl,
-    required ActionCallback callback,
-  }) {
-    return SmartAction(
-      title: title,
-      iconName: iconName,
-      actionUrl: actionUrl,
-      onTapCallback: callback,
-    );
-  }
-
-  static String _normalizeUrl(String value) {
-    return value.toLowerCase().startsWith('www.') ? 'https://$value' : value;
-  }
-
-  static String _digitsOnly(String value) {
-    return value.replaceAll(RegExp(r'[^0-9+]'), '');
-  }
-
-  static Future<void> _launch(Uri uri) async {
-    await launchUrl(uri, mode: LaunchMode.externalApplication);
   }
 }
