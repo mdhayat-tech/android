@@ -129,7 +129,7 @@ class _MainScreenState extends State<MainScreen> {
                       child: Text(
                         'Pasted content will instantly trigger shortcuts.',
                         style: TextStyle(color: Colors.grey),
-                        textAlign: Center,
+                        textAlign: TextAlign.center,
                       ),
                     )
                   : ListView.builder(
